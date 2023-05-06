@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="YGOFM_BGCalc.cpp">
+    <ClCompile Include="YGOFM-BGEx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
