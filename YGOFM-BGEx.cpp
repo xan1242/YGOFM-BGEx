@@ -492,7 +492,7 @@ void WriteImage(std::string filename, int index, int subindex, void* buffer, uns
 // filename - filename of WA_MRG.MRG
 // index - image index
 // bUntile - untile flag
-// TransparencyMode - 0 = keep original data, 1 = black is transparent for subimages 1 and 3, 2 = black is always transparent
+// TransparencyMode - 0 = keep original data, 1 = black is transparent for subimages 0 on type 1 and 2 on type 2, 2 = black is always transparent
 void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32_t TransparencyMode = 1)
 {
     std::cout << "Opening: " << filename << '\n';
@@ -610,7 +610,7 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
         bool bTransparencyFlag = false;
 
         if (TransparencyMode == 1)
-            bTransparencyFlag = (c == 0) && (type == 1);
+            bTransparencyFlag = ((c == 0) && ((type == 1)) || (c == 2) && ((type == 2)));
         if (TransparencyMode == 2)
             bTransparencyFlag = true;
 
@@ -676,7 +676,7 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
 
             DecodePS1ImageP4(indicies, palette, (uint32_t*)(output_buffer), simgSize, true);
 
-            if ((type == 2) && bUntile)
+            if (bUntile)
             {
                 output_buffer = UntileImage256(output_buffer, simgUntileWidth, simgUntileHeight, simgSize);
                 WriteImage(filename, index, c + imgCount, output_buffer, simgUntileWidth, simgUntileHeight);
@@ -700,7 +700,7 @@ int main(int argc, char* argv[])
             << "USAGE: " << argv[0] << " WA_MRG_path index [untile [transparency]]\n"
             << "index = image index\n"
             << "untile = enable/disable untiling (0/1) (1 = default)\n"
-            << "transparency = transparency mode (0 = keep original data, 1 = black is transparent for subimages 1 and 3 (default), 2 = black is always transparent)\n";
+            << "transparency = transparency mode (0 = keep original data, black is transparent for subimages 0 on type 1 and 2 on type 2 (default), 2 = black is always transparent)\n";
         return -1;
     }
 
@@ -728,7 +728,12 @@ int main(int argc, char* argv[])
     //    ExtractBGToDDS(argv[1], i, true);
     //}
 
-    ExtractBGToDDS(argv[1], std::stoi(argv[2]), bUntile, TransparencyMode);
+    for (int i = 512; i < 576; i++)
+    {
+        ExtractBGToDDS(argv[1], i, true);
+    }
+
+    //ExtractBGToDDS(argv[1], std::stoi(argv[2]), bUntile, TransparencyMode);
 
 
     return 0;
