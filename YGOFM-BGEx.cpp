@@ -723,17 +723,7 @@ int main(int argc, char* argv[])
         std::cout << "Untiling disabled!\n";
 
 
-    //for (int i = 0; i < 71; i++)
-    //{
-    //    ExtractBGToDDS(argv[1], i, true);
-    //}
-
-    for (int i = 512; i < 576; i++)
-    {
-        ExtractBGToDDS(argv[1], i, true);
-    }
-
-    //ExtractBGToDDS(argv[1], std::stoi(argv[2]), bUntile, TransparencyMode);
+    ExtractBGToDDS(argv[1], std::stoi(argv[2]), bUntile, TransparencyMode);
 
 
     return 0;
