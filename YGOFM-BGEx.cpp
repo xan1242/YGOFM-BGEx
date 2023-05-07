@@ -155,6 +155,7 @@ void DecodePS1ImageP4(uint8_t* inIndicies, uint16_t* inPalette, uint32_t* outARG
     }
 }
 
+// Untiles a 128x512 buffer to a 320x160 image
 void* UntileImage(void* inBuffer, unsigned int imgUntileWidth, unsigned int imgUntileHeight, size_t imgSize)
 {
     // parts in order of visual presentation in the tiled version
@@ -276,6 +277,173 @@ void* UntileImage(void* inBuffer, unsigned int imgUntileWidth, unsigned int imgU
     return new_output_buffer;
 }
 
+// Untiles a 256x256 buffer to a 320x160 image
+void* UntileImage256(void* inBuffer, unsigned int imgUntileWidth, unsigned int imgUntileHeight, size_t imgSize)
+{
+    // parts in order of visual presentation in the tiled version (from left to right)
+            // 1 - 256x160
+            // 4 - 128x96 -- ignored, 2 - 64x80, 3 - 64x80
+            // 5 - 128x16 -- ignored
+
+    uintptr_t cursor = 0;
+    uint32_t* output_colors = (uint32_t*)(inBuffer);
+
+    size_t imgUntileSize = imgUntileWidth * imgUntileHeight;
+
+    constexpr unsigned int part1width = 256;
+    constexpr unsigned int part1height = 160;
+    constexpr unsigned int part1size = (part1width * part1height);
+    void* part1 = malloc(part1size * 4);
+    memcpy(part1, inBuffer, part1size * 4);
+    uint32_t* rgba_part1 = (uint32_t*)(part1);
+
+    constexpr unsigned int part4width = 128;
+
+    constexpr unsigned int part2width = 64;
+    constexpr unsigned int part2height = 80;
+    constexpr unsigned int part2size = (part2width * part2height);
+    uintptr_t part2start = (part1height * part1width) + part4width;
+    void* part2 = malloc(part2size * 4);
+    uint32_t* rgba_part2 = (uint32_t*)(part2);
+
+    constexpr unsigned int part3width = 64;
+    constexpr unsigned int part3height = 80;
+    constexpr unsigned int part3size = (part3width * part3height);
+    uintptr_t part3start = part2start + part2width;
+    void* part3 = malloc(part3size * 4);
+    uint32_t* rgba_part3 = (uint32_t*)(part3);
+
+    cursor = part2start;
+
+    for (int i = 0; i < part2size; i++)
+    {
+        rgba_part2[i] = output_colors[(cursor)];
+
+        cursor++;
+        if (!(cursor % part2width))
+            cursor += part3width + part4width;
+    }
+
+    cursor = part3start;
+    for (int i = 0; i < part3size; i++)
+    {
+        rgba_part3[i] = output_colors[(cursor)];
+
+        cursor++;
+        if (!(cursor % part3width))
+            cursor += part4width + part2width;
+    }
+
+    // stitch image together
+
+    void* new_output_buffer = malloc(imgUntileSize * 4);
+    uintptr_t new_output_buffer_ptr = (uintptr_t)new_output_buffer;
+    uint32_t* rgba_new = (uint32_t*)(new_output_buffer);
+
+    unsigned int part2heightsize = part2height * imgUntileWidth;
+
+    int p1 = 0;
+    int p2 = 0;
+    int p3 = 0;
+
+    memset(new_output_buffer, 0, imgUntileSize * 4);
+    for (int i = 0; i < imgUntileSize; i++)
+    {
+        int pos = i % imgUntileWidth;
+
+        if (pos < part1width)
+        {
+            rgba_new[i] = rgba_part1[p1];
+            p1++;
+        }
+
+        if (i < part2heightsize)
+        {
+            if ((pos >= (part1width)) && (pos < (part1width + part2width)))
+            {
+                rgba_new[i] = rgba_part2[p2];
+                p2++;
+            }
+        }
+        else
+        {
+            if ((pos >= (part1width)) && (pos < (part1width + part3width)))
+            {
+                rgba_new[i] = rgba_part3[p3];
+                p3++;
+            }
+        }
+    }
+
+    free(part3);
+    free(part2);
+    free(part1);
+
+    free(inBuffer);
+    return new_output_buffer;
+}
+
+// Untiles a 128x512 buffer to a 256x256 image
+void* UntileImage256x256(void* inBuffer, unsigned int imgUntileWidth, unsigned int imgUntileHeight, size_t imgSize)
+{
+    // parts in order of visual presentation in the tiled version
+            // 1 - 128x256
+            // 2 - 128x256
+
+    uintptr_t cursor = 0;
+    uint32_t* output_colors = (uint32_t*)(inBuffer);
+
+    size_t imgUntileSize = imgUntileWidth * imgUntileHeight;
+
+    constexpr unsigned int part1width = 128;
+    constexpr unsigned int part1height = 256;
+    constexpr unsigned int part1size = (part1width * part1height);
+    void* part1 = malloc(part1size * 4);
+    memcpy(part1, inBuffer, part1size * 4);
+    uint32_t* rgba_part1 = (uint32_t*)(part1);
+
+    constexpr unsigned int part2width = 128;
+    constexpr unsigned int part2height = 256;
+    constexpr unsigned int part2size = (part2width * part2height);
+    uintptr_t part2start = imgSize / 2;
+    void* part2 = malloc(part2size * 4);
+    memcpy(part2, &(output_colors[part2start]), part2size * 4);
+    uint32_t* rgba_part2 = (uint32_t*)(part2);
+
+    // stitch image together
+
+    void* new_output_buffer = malloc(imgUntileSize * 4);
+    uintptr_t new_output_buffer_ptr = (uintptr_t)new_output_buffer;
+    uint32_t* rgba_new = (uint32_t*)(new_output_buffer);
+
+    int p1 = 0;
+    int p2 = 0;
+
+    memset(new_output_buffer, 0, imgUntileSize * 4);
+    for (int i = 0; i < imgUntileSize; i++)
+    {
+        int pos = i % imgUntileWidth;
+
+        if (pos < part1width)
+        {
+            rgba_new[i] = rgba_part1[p1];
+            p1++;
+        }
+
+        if ((pos >= (part1width)) && (pos < (part1width + part2width)))
+        {
+            rgba_new[i] = rgba_part2[p2];
+            p2++;
+        }
+    }
+
+    free(part2);
+    free(part1);
+
+    free(inBuffer);
+    return new_output_buffer;
+}
+
 void WriteImage(std::string filename, int index, int subindex, void* buffer, unsigned int width, unsigned int height)
 {
     // create dds
@@ -345,17 +513,25 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
     unsigned int imgWidth = 0;
     unsigned int imgHeight = 0;
     unsigned int imgSize = 0;
-
-    unsigned int imgUntileWidth = 0;
-    unsigned int imgUntileHeight = 0;
-    unsigned int imgUntileSize = 0;
-
-    unsigned int simgWidth = 0;
-    unsigned int simgHeight = 0;
-    unsigned int simgSize = 0;
-    unsigned int simgHalfSize = 0;
-
     unsigned int imgWriteSize = 0;
+
+    constexpr unsigned int imgUntileWidth = 320;
+    constexpr unsigned int imgUntileHeight = 160;
+    constexpr unsigned int imgUntileSize = imgUntileWidth * imgUntileHeight;
+
+    constexpr unsigned int imgUntileWidth2 = 256;
+    constexpr unsigned int imgUntileHeight2 = 256;
+    constexpr unsigned int imgUntileSize2 = imgUntileWidth2 * imgUntileHeight2;
+    constexpr unsigned int imgWriteSize2 = imgUntileSize2 * 4;
+
+    constexpr unsigned int simgWidth = 256;
+    constexpr unsigned int simgHeight = 256;
+    constexpr unsigned int simgSize = simgWidth * simgHeight;
+    constexpr unsigned int simgHalfSize = simgSize / 2;
+
+    constexpr unsigned int simgUntileWidth = 320;
+    constexpr unsigned int simgUntileHeight = 160;
+    constexpr unsigned int simgUntileSize = simgUntileWidth * simgUntileHeight;
     unsigned int simgWriteSize = 0;
 
     unsigned int imgCount = 1;
@@ -365,26 +541,33 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
 
     switch (type)
     {
-        // TODO - add more sizes
     case 2:
+        imgCount = 3;
+        simgCount = 1;
+        simgWriteSize = simgSize * 4;
+        if (bUntile)
+            simgWriteSize = simgUntileSize * 4;
+
+        imgWidth = 128;
+        imgHeight = 512;
+        break;
     case 1:
         imgCount = 2;
         simgCount = 1;
-        simgWidth = 256;
-        simgHeight = 256;
-        simgSize = simgWidth * simgHeight;
-        simgHalfSize = simgSize / 2;
         simgWriteSize = simgSize * 4;
+        if (bUntile)
+            simgWriteSize = simgUntileSize * 4;
+
+        imgWidth = 128;
+        imgHeight = 512;
+        break;
     default:
         imgWidth = 128;
         imgHeight = 512;
-        imgUntileWidth = 320;
-        imgUntileHeight = 160;
         break;
     }
 
     imgSize = imgWidth * imgHeight;
-    imgUntileSize = imgUntileWidth * imgUntileHeight;
     imgWriteSize = imgSize * 4;
     if (bUntile) imgWriteSize = imgUntileSize * 4;
     size = lbasize * 0x800;
@@ -405,17 +588,22 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
     for (int c = 0; c < imgCount; c++)
     {
         uint16_t* palette = nullptr;
-        uint8_t* indicies = nullptr;
+        uint8_t* indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * c));
 
-        if ((type == 1))
+        if (type == 1)
         {
             palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize256 * c));
-            indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * c));
+        }
+        else if (type == 2)
+        {
+            if (c == 2) // 3rd image has its own palette
+                palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize256 * (c - 1)));
+            else
+                palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount));
         }
         else
         {
             palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (palleteSize256 * c));
-            indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * c));
         }
 
         void* output_buffer = malloc(imgSize * 4);
@@ -430,8 +618,32 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
 
         if (bUntile)
         {
-            output_buffer = UntileImage(output_buffer, imgUntileWidth, imgUntileHeight, imgSize);
-            WriteImage(filename, index, c, output_buffer, imgUntileWidth, imgUntileHeight);
+            if (type == 2)
+            {
+                switch (c)
+                {
+                case 2:
+                    output_buffer = UntileImage(output_buffer, imgUntileWidth, imgUntileHeight, imgSize);
+                    WriteImage(filename, index, c, output_buffer, imgUntileWidth, imgUntileHeight);
+                    break;
+                case 1:
+                    output_buffer = UntileImage256x256(output_buffer, imgUntileWidth2, imgUntileHeight2, imgSize);
+                    WriteImage(filename, index, c, output_buffer, imgUntileWidth2, imgUntileHeight2);
+                    break;
+                case 0:
+                    output_buffer = UntileImage256x256(output_buffer, imgUntileWidth2, imgUntileHeight2, imgSize);
+                    WriteImage(filename, index, c, output_buffer, imgUntileWidth2, imgUntileHeight2);
+                    break;
+                default:
+                    break;
+                }
+            }
+            else
+            {
+                output_buffer = UntileImage(output_buffer, imgUntileWidth, imgUntileHeight, imgSize);
+                WriteImage(filename, index, c, output_buffer, imgUntileWidth, imgUntileHeight);
+            }
+            
         }
         else
             WriteImage(filename, index, c, output_buffer, imgWidth, imgHeight);
@@ -440,11 +652,21 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
     }
 
     // extract secondary images
-    if (type == 1)
+    if (type)
     {
         for (int c = 0; c < simgCount; c++)
         {
             uint16_t* palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize256 * imgCount) + (palleteSize16 * c));
+
+            if (type == 1)
+            {
+                palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize256 * imgCount) + (palleteSize16 * c));
+            }
+            else if (type == 2)
+            {
+                palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize16 * c));
+            }
+
             uint8_t* indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * c));
             void* output_buffer = malloc(simgSize * 4);
             bool bTransparencyFlag = false;
@@ -453,7 +675,14 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32
 
 
             DecodePS1ImageP4(indicies, palette, (uint32_t*)(output_buffer), simgSize, true);
-            WriteImage(filename, index, c + imgCount, output_buffer, simgWidth, simgHeight);
+
+            if ((type == 2) && bUntile)
+            {
+                output_buffer = UntileImage256(output_buffer, simgUntileWidth, simgUntileHeight, simgSize);
+                WriteImage(filename, index, c + imgCount, output_buffer, simgUntileWidth, simgUntileHeight);
+            }
+            else
+                WriteImage(filename, index, c + imgCount, output_buffer, simgWidth, simgHeight);
 
             free(output_buffer);
         }
