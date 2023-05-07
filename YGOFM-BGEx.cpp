@@ -59,7 +59,273 @@ unsigned long calclba(int BGindex, unsigned long &out_size, int &out_type)
 // LBAs END
 //
 
-void ExtractBGToDDS(std::string filename, int index, bool bUntile = false)
+void DecodePS1ImageP8(uint8_t* inIndicies, uint16_t* inPalette, uint32_t* outARGB, size_t size, bool bForceBlackTransparency)
+{
+    for (int i = 0; i < size; i++)
+    {
+        uint16_t color = inPalette[inIndicies[i]];
+        uint32_t rgba = 0;
+
+        if ((color & 0x7FFF) == 0)
+        {
+            if ((color & 0x8000) || bForceBlackTransparency)
+                rgba = 0;
+            else
+                rgba = 0xFF000000;
+        }
+        else
+        {
+            uint8_t r = color & 0x1F;
+            uint8_t g = (color & 0x3E0) >> 5;
+            uint8_t b = (color & 0x7C00) >> 10;
+
+
+            float fB = (float)b / 31.0f;
+            float fG = (float)g / 31.0f;
+            float fR = (float)r / 31.0f;
+
+            uint8_t b8 = (uint8_t)(fB * 255.0f);
+            uint8_t g8 = (uint8_t)(fG * 255.0f);
+            uint8_t r8 = (uint8_t)(fR * 255.0f);
+            uint8_t a8 = 0xFF;
+
+            if ((color & 0x8000))
+            {
+                a8 = (r8 + g8 + b8) / 3;
+            }
+
+            rgba |= b8 | (g8 << 8) | (r8 << 16) | (a8 << 24);
+        }
+
+        outARGB[i] = rgba;
+    }
+}
+
+void DecodePS1ImageP4(uint8_t* inIndicies, uint16_t* inPalette, uint32_t* outARGB, size_t size, bool bForceBlackTransparency)
+{
+    int j = 0;
+
+    for (int i = 0; i < size; i++)
+    {
+        uint8_t index = inIndicies[j];
+        // every other time get other 4 bits and increment
+        if (i & 1)
+        {
+            index = (index & 0xF0) >> 4;
+            j++;
+        }
+        else
+            index &= 0xF;
+
+        uint16_t color = inPalette[index];
+        uint32_t rgba = 0;
+
+        if ((color & 0x7FFF) == 0)
+        {
+            if ((color & 0x8000) || bForceBlackTransparency)
+                rgba = 0;
+            else
+                rgba = 0xFF000000;
+        }
+        else
+        {
+            uint8_t r = color & 0x1F;
+            uint8_t g = (color & 0x3E0) >> 5;
+            uint8_t b = (color & 0x7C00) >> 10;
+
+
+            float fB = (float)b / 31.0f;
+            float fG = (float)g / 31.0f;
+            float fR = (float)r / 31.0f;
+
+            uint8_t b8 = (uint8_t)(fB * 255.0f);
+            uint8_t g8 = (uint8_t)(fG * 255.0f);
+            uint8_t r8 = (uint8_t)(fR * 255.0f);
+            uint8_t a8 = 0xFF;
+
+            if ((color & 0x8000))
+            {
+                a8 = (r8 + g8 + b8) / 3;
+            }
+
+            rgba |= b8 | (g8 << 8) | (r8 << 16) | (a8 << 24);
+        }
+
+        outARGB[i] = rgba;
+    }
+}
+
+void* UntileImage(void* inBuffer, unsigned int imgUntileWidth, unsigned int imgUntileHeight, size_t imgSize)
+{
+    // parts in order of visual presentation in the tiled version
+            // 1 - 128x160
+            // 5 - 128x96 -- ignored
+            // 2 - 128x160
+            // 3 - 64x80, 4 - 64x80
+            // 6 - 128x16 -- ignored
+
+    uintptr_t cursor = 0;
+    uint32_t* output_colors = (uint32_t*)(inBuffer);
+
+    size_t imgUntileSize = imgUntileWidth * imgUntileHeight;
+
+    constexpr unsigned int part1width = 128;
+    constexpr unsigned int part1height = 160;
+    constexpr unsigned int part1size = (part1width * part1height);
+    void* part1 = malloc(part1size * 4);
+    memcpy(part1, inBuffer, part1size * 4);
+    uint32_t* rgba_part1 = (uint32_t*)(part1);
+
+    constexpr unsigned int part2width = 128;
+    constexpr unsigned int part2height = 160;
+    constexpr unsigned int part2size = (part2width * part2height);
+    uintptr_t part2start = imgSize / 2;
+    void* part2 = malloc(part2size * 4);
+    memcpy(part2, &(output_colors[part2start]), part2size * 4);
+    uint32_t* rgba_part2 = (uint32_t*)(part2);
+
+    constexpr unsigned int part3width = 64;
+    constexpr unsigned int part3height = 80;
+    constexpr unsigned int part3size = (part3width * part3height);
+    uintptr_t part3start = part2start + part2size;
+    void* part3 = malloc(part3size * 4);
+    uint32_t* rgba_part3 = (uint32_t*)(part3);
+
+    constexpr unsigned int part4width = 64;
+    constexpr unsigned int part4height = 80;
+    constexpr unsigned int part4size = (part4width * part4height);
+    uintptr_t part4start = part3start + (part3width);
+    void* part4 = malloc(part4size * 4);
+    uint32_t* rgba_part4 = (uint32_t*)(part4);
+
+    // copy half width images
+    cursor = part3start;
+    for (int i = 0; i < part3size; i++)
+    {
+        rgba_part3[i] = output_colors[(cursor)];
+
+        cursor++;
+        if (!(cursor % part3width))
+            cursor += part4width;
+    }
+
+    cursor = part4start;
+    for (int i = 0; i < part4size; i++)
+    {
+        rgba_part4[i] = output_colors[(cursor)];
+
+        cursor++;
+        if (!(cursor % (part3width + part4width)))
+            cursor += part3width;
+    }
+
+    // stitch image together
+
+    void* new_output_buffer = malloc(imgUntileSize * 4);
+    uintptr_t new_output_buffer_ptr = (uintptr_t)new_output_buffer;
+    uint32_t* rgba_new = (uint32_t*)(new_output_buffer);
+
+    unsigned int part3heightsize = part3height * imgUntileWidth;
+
+    int p1 = 0;
+    int p2 = 0;
+    int p3 = 0;
+    int p4 = 0;
+
+    memset(new_output_buffer, 0, imgUntileSize * 4);
+    for (int i = 0; i < imgUntileSize; i++)
+    {
+        int pos = i % imgUntileWidth;
+
+        if (pos < part1width)
+        {
+            rgba_new[i] = rgba_part1[p1];
+            p1++;
+        }
+
+        if ((pos >= (part1width)) && (pos < (part1width + part2width)))
+        {
+            rgba_new[i] = rgba_part2[p2];
+            p2++;
+        }
+
+        if (i < part3heightsize)
+        {
+            if ((pos >= (part1width + part2width)) && (pos < (part1width + part2width + part3width)))
+            {
+                rgba_new[i] = rgba_part3[p3];
+                p3++;
+            }
+        }
+        else
+        {
+            if ((pos >= (part1width + part2width)) && (pos < (part1width + part2width + part4width)))
+            {
+                rgba_new[i] = rgba_part4[p4];
+                p4++;
+            }
+        }
+    }
+
+    free(part4);
+    free(part3);
+    free(part2);
+    free(part1);
+
+    free(inBuffer);
+    return new_output_buffer;
+}
+
+void WriteImage(std::string filename, int index, int subindex, void* buffer, unsigned int width, unsigned int height)
+{
+    // create dds
+    struct DirectX::DDS_HEADER ddshs = { 0 };
+    struct DirectX::DDS_PIXELFORMAT ddspfs = { 0 };
+    ddshs.dwSize = 124;
+    ddshs.dwFlags = 0x21007;
+
+    ddshs.dwWidth = width;
+    ddshs.dwHeight = height;
+
+    ddshs.dwMipMapCount = 0;
+    ddspfs.dwSize = 32;
+    ddspfs.dwFlags = 0x41;
+    ddspfs.dwRGBBitCount = 0x20;
+    ddspfs.dwRBitMask = 0xFF0000;
+    ddspfs.dwGBitMask = 0xFF00;
+    ddspfs.dwBBitMask = 0xFF;
+    ddspfs.dwABitMask = 0xFF000000;
+    ddshs.dwCaps = 0x40100A;
+    ddshs.ddspf = ddspfs;
+    constexpr unsigned int DDSMagic = 0x20534444;
+
+    size_t writeSize = (width * height) * sizeof(uint32_t);
+
+
+    std::string outFilename = filename + "_" + std::to_string(index) + "_" + std::to_string(subindex) + ".out.dds";
+    std::cout << "Writing: " << outFilename << '\n';
+
+    FILE* fout = fopen(outFilename.c_str(), "wb");
+    if (!fout)
+    {
+        std::cout << "ERROR: couldn't open file for writing: " << outFilename << '\n';
+        perror("ERROR");
+        return;
+    }
+
+    fwrite(&DDSMagic, 4, 1, fout);
+    fwrite(&ddshs, sizeof(ddshs), 1, fout);
+    fwrite(buffer, sizeof(uint8_t), writeSize, fout);
+
+    fclose(fout);
+}
+
+// Starts the extraction process of background images
+// filename - filename of WA_MRG.MRG
+// index - image index
+// bUntile - untile flag
+// TransparencyMode - 0 = keep original data, 1 = black is transparent for subimages 1 and 3, 2 = black is always transparent
+void ExtractBGToDDS(std::string filename, int index, bool bUntile = true, uint32_t TransparencyMode = 1)
 {
     std::cout << "Opening: " << filename << '\n';
 
@@ -84,13 +350,31 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = false)
     unsigned int imgUntileHeight = 0;
     unsigned int imgUntileSize = 0;
 
+    unsigned int simgWidth = 0;
+    unsigned int simgHeight = 0;
+    unsigned int simgSize = 0;
+    unsigned int simgHalfSize = 0;
+
     unsigned int imgWriteSize = 0;
+    unsigned int simgWriteSize = 0;
+
+    unsigned int imgCount = 1;
+    unsigned int simgCount = 0;
+    constexpr unsigned int palleteSize256 = 256 * sizeof(uint16_t);
+    constexpr unsigned int palleteSize16 = 16 * sizeof(uint16_t);
 
     switch (type)
     {
         // TODO - add more sizes
     case 2:
     case 1:
+        imgCount = 2;
+        simgCount = 1;
+        simgWidth = 256;
+        simgHeight = 256;
+        simgSize = simgWidth * simgHeight;
+        simgHalfSize = simgSize / 2;
+        simgWriteSize = simgSize * 4;
     default:
         imgWidth = 128;
         imgHeight = 512;
@@ -117,211 +401,64 @@ void ExtractBGToDDS(std::string filename, int index, bool bUntile = false)
     fread(input_buffer, size, 1, fin);
     fclose(fin);
 
-    uint16_t* palette = (uint16_t*)((uintptr_t)input_buffer + imgSize);
-    uint8_t* indicies = (uint8_t*)(input_buffer);
-
-    void* output_buffer = malloc(imgSize * 4);
-    uint32_t* output_colors = (uint32_t*)(output_buffer);
-
-
-    for (int i = 0; i < imgSize; i++)
+    // extract 320x160 images
+    for (int c = 0; c < imgCount; c++)
     {
-        uint16_t color = palette[indicies[i]];
-        uint32_t rgba = 0xFF000000;
+        uint16_t* palette = nullptr;
+        uint8_t* indicies = nullptr;
 
-        if ((color & 0x7FFF) == 0)
+        if ((type == 1))
         {
-            if ((color & 0x8000) == 0)
-                rgba = 0;
+            palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize256 * c));
+            indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * c));
         }
         else
         {
-            uint8_t r = color & 0x1F;
-            uint8_t g = (color & 0x3E0) >> 5;
-            uint8_t b = (color & 0x7C00) >> 10;
-
-
-            float fB = (float)b / 31.0f;
-            float fG = (float)g / 31.0f;
-            float fR = (float)r / 31.0f;
-
-            uint8_t b8 = (uint8_t)(fB * 255.0f);
-            uint8_t g8 = (uint8_t)(fG * 255.0f);
-            uint8_t r8 = (uint8_t)(fR * 255.0f);
-
-            rgba |= b8 | (g8 << 8) | (r8 << 16);
+            palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (palleteSize256 * c));
+            indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * c));
         }
 
-        output_colors[i] = rgba;
-    }
+        void* output_buffer = malloc(imgSize * 4);
+        bool bTransparencyFlag = false;
 
+        if (TransparencyMode == 1)
+            bTransparencyFlag = (c == 0) && (type == 1);
+        if (TransparencyMode == 2)
+            bTransparencyFlag = true;
 
+        DecodePS1ImageP8(indicies, palette, (uint32_t*)(output_buffer), imgSize, bTransparencyFlag);
 
-    // untile type 0
-    if (bUntile)
-    {
-        // parts in order of visual presentation in the tiled version
-        // 1 - 128x160
-        // 5 - 128x96 -- ignored
-        // 2 - 128x160
-        // 3 - 64x80, 4 - 64x80
-        // 6 - 128x16 -- ignored
-
-        uintptr_t cursor = 0;
-
-        constexpr unsigned int part1width = 128;
-        constexpr unsigned int part1height = 160;
-        constexpr unsigned int part1size = (part1width * part1height);
-        void* part1 = malloc(part1size * 4);
-        memcpy(part1, output_buffer, part1size * 4);
-        uint32_t* rgba_part1 = (uint32_t*)(part1);
-        
-        constexpr unsigned int part2width = 128;
-        constexpr unsigned int part2height = 160;
-        constexpr unsigned int part2size = (part2width * part2height);
-        uintptr_t part2start = imgSize / 2;
-        void* part2 = malloc(part2size * 4);
-        memcpy(part2, &(output_colors[part2start]), part2size * 4);
-        uint32_t* rgba_part2 = (uint32_t*)(part2);
-
-        constexpr unsigned int part3width = 64;
-        constexpr unsigned int part3height = 80;
-        constexpr unsigned int part3size = (part3width * part3height);
-        uintptr_t part3start = part2start + part2size;
-        void* part3 = malloc(part3size * 4);
-        uint32_t* rgba_part3 = (uint32_t*)(part3);
-        
-        constexpr unsigned int part4width = 64;
-        constexpr unsigned int part4height = 80;
-        constexpr unsigned int part4size = (part4width * part4height);
-        uintptr_t part4start = part3start + (part3width);
-        void* part4 = malloc(part4size * 4);
-        uint32_t* rgba_part4 = (uint32_t*)(part4);
-        
-        // copy half width images
-        cursor = part3start;
-        for (int i = 0; i < part3size; i++)
+        if (bUntile)
         {
-            rgba_part3[i] = output_colors[(cursor)];
-
-            cursor++;
-            if (!(cursor % part3width))
-                cursor += part4width;
+            output_buffer = UntileImage(output_buffer, imgUntileWidth, imgUntileHeight, imgSize);
+            WriteImage(filename, index, c, output_buffer, imgUntileWidth, imgUntileHeight);
         }
-
-        cursor = part4start;
-        for (int i = 0; i < part4size; i++)
-        {
-            rgba_part4[i] = output_colors[(cursor)];
-
-            cursor++;
-            if (!(cursor % (part3width + part4width)))
-                cursor += part3width;
-        }
-        
-        // stitch image together
-
-        void* new_output_buffer = malloc(imgUntileSize * 4);
-        uintptr_t new_output_buffer_ptr = (uintptr_t)new_output_buffer;
-        uint32_t* rgba_new = (uint32_t*)(new_output_buffer);
-
-        unsigned int part3heightsize = part3height * imgUntileWidth;
-
-        int p1 = 0;
-        int p2 = 0;
-        int p3 = 0;
-        int p4 = 0;
-
-        memset(new_output_buffer, 0, imgUntileSize * 4);
-        for (int i = 0; i < imgUntileSize; i++)
-        {
-            int pos = i % imgUntileWidth;
-
-            if (pos < part1width)
-            {
-                rgba_new[i] = rgba_part1[p1];
-                p1++;
-            }
-
-            if ((pos >= (part1width)) && (pos < (part1width + part2width)))
-            {
-                rgba_new[i] = rgba_part2[p2];
-                p2++;
-            }
-
-            if (i < part3heightsize)
-            {
-                if ((pos >= (part1width + part2width)) && (pos < (part1width + part2width + part3width)))
-                {
-                    rgba_new[i] = rgba_part3[p3];
-                    p3++;
-                }
-            }
-            else
-            {
-                if ((pos >= (part1width + part2width)) && (pos < (part1width + part2width + part4width)))
-                {
-                    rgba_new[i] = rgba_part4[p4];
-                    p4++;
-                }
-            }
-        }
-        
-        free(part4);
-        free(part3);
-        free(part2);
-        free(part1);
-        
+        else
+            WriteImage(filename, index, c, output_buffer, imgWidth, imgHeight);
+            
         free(output_buffer);
-        output_buffer = new_output_buffer;
     }
 
-    // create dds
-    struct DirectX::DDS_HEADER ddshs = { 0 };
-    struct DirectX::DDS_PIXELFORMAT ddspfs = { 0 };
-    ddshs.dwSize = 124;
-    ddshs.dwFlags = 0x21007;
-
-    ddshs.dwWidth = imgWidth;
-    ddshs.dwHeight = imgHeight;
-    
-    if (bUntile)
+    // extract secondary images
+    if (type == 1)
     {
-        ddshs.dwWidth = imgUntileWidth;
-        ddshs.dwHeight = imgUntileHeight;
+        for (int c = 0; c < simgCount; c++)
+        {
+            uint16_t* palette = (uint16_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * simgCount) + (palleteSize256 * imgCount) + (palleteSize16 * c));
+            uint8_t* indicies = (uint8_t*)((uintptr_t)input_buffer + (imgSize * imgCount) + (simgHalfSize * c));
+            void* output_buffer = malloc(simgSize * 4);
+            bool bTransparencyFlag = false;
+            if (TransparencyMode)
+                bTransparencyFlag = true;
+
+
+            DecodePS1ImageP4(indicies, palette, (uint32_t*)(output_buffer), simgSize, true);
+            WriteImage(filename, index, c + imgCount, output_buffer, simgWidth, simgHeight);
+
+            free(output_buffer);
+        }
     }
 
-    ddshs.dwMipMapCount = 0;
-    ddspfs.dwSize = 32;
-    ddspfs.dwFlags = 0x41;
-    ddspfs.dwRGBBitCount = 0x20;
-    ddspfs.dwRBitMask = 0xFF0000;
-    ddspfs.dwGBitMask = 0xFF00;
-    ddspfs.dwBBitMask = 0xFF;
-    ddspfs.dwABitMask = 0xFF000000;
-    ddshs.dwCaps = 0x40100A;
-    ddshs.ddspf = ddspfs;
-    constexpr unsigned int DDSMagic = 0x20534444;
-
-
-    std::string outFilename = filename + "_" + std::to_string(index) + ".out.dds";
-    std::cout << "Writing: " << outFilename << '\n';
-
-    FILE* fout = fopen(outFilename.c_str(), "wb");
-    if (!fout)
-    {
-        std::cout << "ERROR: couldn't open file for writing: " << outFilename << '\n';
-        perror("ERROR");
-        return;
-    }
-
-    fwrite(&DDSMagic, 4, 1, fout);
-    fwrite(&ddshs, sizeof(ddshs), 1, fout);
-    fwrite(output_buffer, sizeof(uint8_t), imgWriteSize, fout);
-
-    fclose(fout);
-
-    free(output_buffer);
     free(input_buffer);
 }
 
@@ -330,16 +467,25 @@ int main(int argc, char* argv[])
 {
     if (argc < 3)
     {
-        std::cout << 
-            "USAGE: " << argv[0] << " WA_MRG_path index [untile (0/1, on by default)]\n";
+        std::cout
+            << "USAGE: " << argv[0] << " WA_MRG_path index [untile [transparency]]\n"
+            << "index = image index\n"
+            << "untile = enable/disable untiling (0/1) (1 = default)\n"
+            << "transparency = transparency mode (0 = keep original data, 1 = black is transparent for subimages 1 and 3 (default), 2 = black is always transparent)\n";
         return -1;
     }
 
     bool bUntile = true;
+    uint32_t TransparencyMode = 1;
 
     if (argc >= 4)
     {
-        bUntile = std::stoi(argv[argc - 1]) != 0;
+        bUntile = std::stoi(argv[3]) != 0;
+    }
+
+    if (argc >= 5)
+    {
+        TransparencyMode = std::stoi(argv[argc-1]);
     }
 
     if (bUntile)
@@ -353,7 +499,7 @@ int main(int argc, char* argv[])
     //    ExtractBGToDDS(argv[1], i, true);
     //}
 
-    ExtractBGToDDS(argv[1], std::stoi(argv[2]), bUntile);
+    ExtractBGToDDS(argv[1], std::stoi(argv[2]), bUntile, TransparencyMode);
 
 
     return 0;
