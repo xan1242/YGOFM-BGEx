@@ -1,7 +1,6 @@
 // Yu-Gi-Oh! Forbidden Memories background image extractor
 // by Xan / Tenjoin
 
-// TODO - add support for type 1 and 2
 // TODO - add other versions
 // TODO - maybe add support for LBA calculation of other content
 // TODO - maybe add support for repacking
